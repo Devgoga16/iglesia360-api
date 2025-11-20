@@ -3,9 +3,11 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import swaggerUi from 'swagger-ui-express';
 import connectDB from './config/database.js';
 import { config } from './config/config.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
+import swaggerSpec from './config/swagger.js';
 
 // Importar rutas
 import userRoutes from './routes/userRoutes.js';
@@ -32,6 +34,37 @@ app.use('/api', limiter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Swagger Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'Iglesia 360 API Docs'
+}));
+
+/**
+ * @swagger
+ * /health:
+ *   get:
+ *     summary: Health check
+ *     tags: [Health]
+ *     description: Verifica que la API esté funcionando correctamente
+ *     responses:
+ *       200:
+ *         description: API funcionando correctamente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: API funcionando correctamente
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ */
 // Ruta de health check
 app.get('/health', (req, res) => {
   res.status(200).json({ 
