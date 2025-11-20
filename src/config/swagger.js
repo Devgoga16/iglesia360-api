@@ -18,7 +18,7 @@ const swaggerDefinition = {
     },
     ...(process.env.API_URL_PRODUCTION ? [{
       url: process.env.API_URL_PRODUCTION,
-      description: 'Servidor de producción'
+      description: 'Servidor de producción v2'
     }] : [])
   ],
   tags: [
