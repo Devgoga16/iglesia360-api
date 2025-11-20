@@ -13,13 +13,13 @@ const swaggerDefinition = {
   },
   servers: [
     {
-      url: 'http://localhost:3000',
+      url: process.env.API_URL || 'http://localhost:3000',
       description: 'Servidor de desarrollo'
     },
-    {
-      url: 'https://iglesia-360-api-c4p25y-dc00a7-31-97-133-67.traefik.me',
+    ...(process.env.API_URL_PRODUCTION ? [{
+      url: process.env.API_URL_PRODUCTION,
       description: 'Servidor de producción'
-    }
+    }] : [])
   ],
   tags: [
     {
