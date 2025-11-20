@@ -17,7 +17,7 @@ const swaggerDefinition = {
       description: 'Servidor de desarrollo'
     },
     {
-      url: 'https://api.iglesia360.com',
+      url: 'https://iglesia-360-api-c4p25y-dc00a7-31-97-133-67.traefik.me',
       description: 'Servidor de producción'
     }
   ],
