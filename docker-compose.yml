@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: iglesia360-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGODB_URI=mongodb://mongo:27017/iglesia360
+    depends_on:
+      - mongo
+    networks:
+      - iglesia360-network
+
+  mongo:
+    image: mongo:7
+    container_name: iglesia360-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - iglesia360-network
+
+volumes:
+  mongo-data:
+
+networks:
+  iglesia360-network:
+    driver: bridge

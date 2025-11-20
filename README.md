@@ -210,12 +210,59 @@ Respuesta JSON ← Controlador ← Express ← Cliente
 5. Crear tests unitarios e integración
 6. Documentar API con Swagger/OpenAPI
 
+## 🐳 Docker y Despliegue
+
+### Construcción y ejecución con Docker
+
+**Opción 1: Solo API (necesitas MongoDB externo)**
+```bash
+# Construir imagen
+docker build -t iglesia360-api .
+
+# Ejecutar contenedor
+docker run -p 3000:3000 -e MONGODB_URI=tu_uri_mongodb iglesia360-api
+```
+
+**Opción 2: API + MongoDB con Docker Compose (Recomendado)**
+```bash
+# Iniciar todos los servicios
+docker-compose up -d
+
+# Ver logs
+docker-compose logs -f
+
+# Detener servicios
+docker-compose down
+```
+
+### Despliegue en Plataformas
+
+**Railway:**
+1. Conecta tu repositorio GitHub
+2. Agrega servicio MongoDB desde Railway
+3. Configura variable `MONGODB_URI` con la URI de Railway
+4. Deploy automático
+
+**Render:**
+1. Crea Web Service desde GitHub
+2. Build Command: `npm install`
+3. Start Command: `node src/index.js`
+4. Agrega MongoDB Atlas URI en variables de entorno
+
+**DigitalOcean App Platform:**
+1. Conecta repositorio
+2. Detecta automáticamente Node.js
+3. Configura variables de entorno
+4. Deploy
+
 ## 📝 Notas Importantes
 
 - Usa **ES Modules** (`import/export`) en lugar de CommonJS
 - Node.js >= 18.0.0 requerido para `--watch` flag
 - MongoDB debe estar corriendo antes de iniciar la app
 - Los errores se muestran en detalle solo en `development`
+- **Docker**: Usa multi-stage build para optimizar tamaño de imagen
+- **Seguridad**: Corre con usuario no-root en producción
 
 ---
 
