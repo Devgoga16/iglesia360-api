@@ -27,11 +27,39 @@ const swaggerDefinition = {
       description: 'Endpoints de salud del sistema'
     },
     {
+      name: 'Auth',
+      description: 'Autenticación y autorización'
+    },
+    {
+      name: 'Persons',
+      description: 'Gestión de personas'
+    },
+    {
+      name: 'Roles',
+      description: 'Gestión de roles'
+    },
+    {
+      name: 'Modules',
+      description: 'Gestión de módulos'
+    },
+    {
+      name: 'Options',
+      description: 'Gestión de opciones/permisos'
+    },
+    {
       name: 'Users',
-      description: 'Gestión de usuarios'
+      description: 'Gestión de usuarios (deprecado)'
     }
   ],
   components: {
+    securitySchemes: {
+      bearerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Ingrese el token JWT obtenido del login'
+      }
+    },
     schemas: {
       User: {
         type: 'object',

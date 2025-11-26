@@ -11,6 +11,11 @@ import swaggerSpec from './config/swagger.js';
 
 // Importar rutas
 import userRoutes from './routes/userRoutes.js';
+import authRoutes from './routes/authRoutes.js';
+import personRoutes from './routes/personRoutes.js';
+import rolRoutes from './routes/rolRoutes.js';
+import moduleRoutes from './routes/moduleRoutes.js';
+import optionRoutes from './routes/optionRoutes.js';
 
 dotenv.config();
 
@@ -75,7 +80,12 @@ app.get('/health', (req, res) => {
 });
 
 // Rutas principales
-app.use('/api/users', userRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/persons', personRoutes);
+app.use('/api/roles', rolRoutes);
+app.use('/api/modules', moduleRoutes);
+app.use('/api/options', optionRoutes);
+app.use('/api/users', userRoutes); // Deprecado - usar auth
 
 // Manejo de errores
 app.use(notFound);

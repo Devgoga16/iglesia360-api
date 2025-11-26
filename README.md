@@ -96,10 +96,23 @@ Edita `.env` con tus valores:
 ```env
 PORT=3000
 MONGODB_URI=mongodb://localhost:27017/iglesia360
+JWT_SECRET=tu_secreto_super_seguro_cambialo_en_produccion
+JWT_EXPIRE=7d
 NODE_ENV=development
 ```
 
-### 3. Asegúrate de tener MongoDB corriendo
+### 3. Inicializar datos de autenticación (Opcional)
+```bash
+npm run seed:auth
+```
+Esto creará:
+- 4 roles (Administrador, Pastor, Líder, Miembro)
+- 5 módulos con 11 opciones
+- 2 usuarios de prueba:
+  - **admin** / admin123 (Administrador)
+  - **pastor** / pastor123 (Pastor)
+
+### 4. Asegúrate de tener MongoDB corriendo
 ```bash
 # Con MongoDB local
 mongod
@@ -121,13 +134,28 @@ npm start
 
 ## 📡 Endpoints Disponibles
 
+### 📚 Documentación Interactiva
+```
+GET /api-docs
+```
+Accede a Swagger UI para probar todos los endpoints de forma interactiva.
+
 ### Health Check
 ```
 GET /health
 ```
 Verifica que la API esté funcionando correctamente.
 
-### Usuarios
+### 🔐 Autenticación
+```
+POST   /api/auth/login           # Login de usuario
+POST   /api/auth/register        # Registrar nuevo usuario
+GET    /api/auth/me              # Obtener perfil (requiere auth)
+PUT    /api/auth/updatepassword  # Actualizar contraseña (requiere auth)
+GET    /api/auth/permissions     # Obtener permisos (requiere auth)
+```
+
+### 👥 Usuarios (Deprecado - usar Auth)
 ```
 GET    /api/users      # Obtener todos los usuarios activos
 GET    /api/users/:id  # Obtener un usuario específico
@@ -135,6 +163,8 @@ POST   /api/users      # Crear nuevo usuario
 PUT    /api/users/:id  # Actualizar usuario
 DELETE /api/users/:id  # Eliminar usuario (soft delete)
 ```
+
+**Nota:** Ver `AUTH_SYSTEM.md` para documentación completa del sistema de autenticación.
 
 **Ejemplo de creación de usuario:**
 ```json
@@ -149,11 +179,15 @@ POST /api/users
 
 ## 🛡️ Características de Seguridad
 
+- **JWT Authentication**: Autenticación basada en tokens
+- **Password Hashing**: bcrypt con salt rounds de 10
+- **Bloqueo de cuenta**: 5 intentos fallidos = 15 minutos bloqueado
 - **Helmet**: Protección de headers HTTP
 - **CORS**: Control de acceso entre orígenes
 - **Rate Limiting**: 100 peticiones por 15 minutos por IP
-- **Validación**: Joi para validación de datos (incluido en dependencias)
-- **Soft Delete**: Los usuarios no se eliminan físicamente
+- **Validación**: Joi para validación de datos
+- **Control de Permisos**: Sistema granular por roles, módulos y opciones
+- **Soft Delete**: Los datos no se eliminan físicamente
 
 ## 🏛️ Principios Arquitectónicos
 
@@ -188,6 +222,9 @@ Sigue una arquitectura de **3 capas**:
 - **helmet**: Seguridad de headers
 - **express-rate-limit**: Limitación de peticiones
 - **joi**: Validación de esquemas
+- **bcryptjs**: Hashing de contraseñas
+- **jsonwebtoken**: Autenticación JWT
+- **swagger-jsdoc** & **swagger-ui-express**: Documentación API
 
 ## 🔄 Flujo de una Petición
 
