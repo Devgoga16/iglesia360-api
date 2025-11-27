@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 const userSchema = new mongoose.Schema({
+  // Username único usado para iniciar sesión
   username: {
     type: String,
     required: [true, 'El nombre de usuario es requerido'],
@@ -10,6 +11,7 @@ const userSchema = new mongoose.Schema({
     lowercase: true,
     minlength: [3, 'El username debe tener al menos 3 caracteres']
   },
+  // Correo electrónico principal del usuario
   email: {
     type: String,
     required: [true, 'El email es requerido'],
@@ -18,32 +20,44 @@ const userSchema = new mongoose.Schema({
     trim: true,
     match: [/^\S+@\S+\.\S+$/, 'Email inválido']
   },
+  // Hash de la contraseña del usuario
   password: {
     type: String,
     required: [true, 'La contraseña es requerida'],
     minlength: [6, 'La contraseña debe tener al menos 6 caracteres'],
     select: false // No incluir password en queries por defecto
   },
+  // Referencia a los datos personales del usuario
   person: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Person',
     required: [true, 'La persona es requerida']
   },
+  // Sucursal asignada al usuario dentro de la organización
+  branch: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Branch'
+  },
+  // Lista de roles asociados para permisos
   roles: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Rol',
     required: [true, 'Debe tener al menos un rol']
   }],
+  // Fecha del último acceso exitoso
   ultimoAcceso: {
     type: Date
   },
+  // Conteo de intentos fallidos de autenticación
   intentosFallidos: {
     type: Number,
     default: 0
   },
+  // Momento hasta el cual el usuario permanece bloqueado
   bloqueadoHasta: {
     type: Date
   },
+  // Estado lógico del usuario dentro del sistema
   activo: {
     type: Boolean,
     default: true
@@ -57,6 +71,7 @@ userSchema.index({ username: 1 });
 userSchema.index({ email: 1 });
 userSchema.index({ person: 1 });
 userSchema.index({ roles: 1 });
+userSchema.index({ branch: 1 });
 
 // Hook pre-save para hashear password
 userSchema.pre('save', async function(next) {

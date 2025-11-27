@@ -1,5 +1,7 @@
+import mongoose from 'mongoose';
 import User from '../models/User.js';
 import Person from '../models/Person.js';
+import Branch from '../models/Branch.js';
 import { generateToken } from '../utils/jwt.js';
 
 /**
@@ -23,7 +25,8 @@ export const login = async (req, res, next) => {
     })
       .select('+password')
       .populate('person')
-      .populate('roles');
+      .populate('roles')
+      .populate('branch', 'name');
 
     if (!user) {
       const error = new Error('Credenciales inválidas');
@@ -144,6 +147,7 @@ export const register = async (req, res, next) => {
       fechaNacimiento,
       telefono,
       direccion,
+      branchId,
       // Datos de usuario
       username, 
       email, 
@@ -158,9 +162,29 @@ export const register = async (req, res, next) => {
       return next(error);
     }
 
+    if (!branchId) {
+      const error = new Error('Debe especificar la sucursal del usuario');
+      error.statusCode = 400;
+      return next(error);
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(branchId)) {
+      const error = new Error('El identificador de la sucursal es inválido');
+      error.statusCode = 400;
+      return next(error);
+    }
+
     if (!username || !email || !password || !roles || roles.length === 0) {
       const error = new Error('Username, email, password y al menos un rol son requeridos');
       error.statusCode = 400;
+      return next(error);
+    }
+
+    const branchExists = await Branch.exists({ _id: branchId });
+
+    if (!branchExists) {
+      const error = new Error('La sucursal indicada no existe');
+      error.statusCode = 404;
       return next(error);
     }
 
@@ -192,7 +216,8 @@ export const register = async (req, res, next) => {
       numeroDocumento,
       fechaNacimiento,
       telefono,
-      direccion
+      direccion,
+      branch: branchId
     });
 
     // Crear usuario
@@ -201,12 +226,14 @@ export const register = async (req, res, next) => {
       email,
       password,
       person: person._id,
-      roles
+      roles,
+      branch: branchId
     });
 
     // Poblar datos
     await user.populate('person');
     await user.populate('roles');
+    await user.populate('branch', 'name');
 
     // Generar token
     const token = generateToken(user._id);

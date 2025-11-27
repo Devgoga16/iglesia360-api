@@ -3,6 +3,7 @@ import {
   getUsers,
   getUserById,
   createUser,
+  createUserFromPerson,
   updateUser,
   deleteUser
 } from '../controllers/userController.js';
@@ -85,6 +86,8 @@ const router = express.Router();
 router.route('/')
   .get(getUsers)
   .post(createUser);
+
+router.post('/from-person', createUserFromPerson);
 
 /**
  * @swagger
