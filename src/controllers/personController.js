@@ -7,7 +7,11 @@ import Person from '../models/Person.js';
 export const getPersons = async (req, res, next) => {
   try {
     const persons = await Person.find({ activo: true })
-      .populate('branch', 'name')
+      .populate({
+        path: 'branch',
+        select: 'name parentBranch',
+        populate: { path: 'parentBranch', select: 'name' }
+      })
       .populate({
         path: 'user',
         select: 'username email roles branch activo',
@@ -31,7 +35,11 @@ export const getPersons = async (req, res, next) => {
 export const getPersonById = async (req, res, next) => {
   try {
     const person = await Person.findById(req.params.id)
-      .populate('branch', 'name')
+      .populate({
+        path: 'branch',
+        select: 'name parentBranch',
+        populate: { path: 'parentBranch', select: 'name' }
+      })
       .populate({
         path: 'user',
         select: 'username email roles branch activo',
@@ -81,7 +89,11 @@ export const createPerson = async (req, res, next) => {
     }
 
     const person = await Person.create(req.body);
-    await person.populate('branch', 'name');
+    await person.populate({
+      path: 'branch',
+      select: 'name parentBranch',
+      populate: { path: 'parentBranch', select: 'name' }
+    });
     await person.populate({
       path: 'user',
       select: 'username email roles branch activo',
@@ -134,7 +146,11 @@ export const updatePerson = async (req, res, next) => {
       req.body,
       { new: true, runValidators: true }
     )
-      .populate('branch', 'name')
+      .populate({
+        path: 'branch',
+        select: 'name parentBranch',
+        populate: { path: 'parentBranch', select: 'name' }
+      })
       .populate({
         path: 'user',
         select: 'username email roles branch activo',

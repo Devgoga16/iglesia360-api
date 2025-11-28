@@ -64,7 +64,7 @@ const router = express.Router();
  */
 router.route('/')
   .get(protect, getAccounts)
-  .post(protect, authorize('Administrador', 'Pastor'), createAccount);
+  .post(protect, authorize('Tesorero'), createAccount);
 
 /**
  * @swagger

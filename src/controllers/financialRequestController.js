@@ -30,9 +30,10 @@ const calculateTotal = (items) => {
 
 const ROLE_NAMES = {
   REQUESTER: 'REQUESTER',
-  NETWORK_PASTOR: 'NETWORK_PASTOR',
-  LEAD_PASTOR: 'LEAD_PASTOR',
-  ADMIN: 'ADMIN'
+  NETWORK_PASTOR: 'PASTOR',
+  LEAD_PASTOR: 'PASTOR PRINCIPAL',
+  ADMIN: 'ADMINISTRADOR',
+  TREASURER: 'TESORERO'
 };
 
 const toObjectIdString = (value) => {
@@ -78,6 +79,9 @@ const ensureStatusPermission = (request, nextStatus, user) => {
       if (!hasNetwork) {
         throw buildError('No tiene permisos para aprobar a nivel de Red', 403);
       }
+      if (!isSameObjectId(request.branch, user.branch)) {
+        throw buildError('Solo puede aprobar solicitudes de su sucursal', 403);
+      }
       break;
     case FINANCIAL_REQUEST_STATUS.APPROVED_LEAD:
       if (!hasLead) {
@@ -107,6 +111,9 @@ const ensureStatusPermission = (request, nextStatus, user) => {
       if (current === FINANCIAL_REQUEST_STATUS.CREATED) {
         if (!hasNetwork) {
           throw buildError('Solo un pastor de red o administrador puede rechazar en esta etapa', 403);
+        }
+        if (!hasAdmin && !isSameObjectId(request.branch, user.branch)) {
+          throw buildError('Solo puede rechazar solicitudes de su sucursal', 403);
         }
       } else if (current === FINANCIAL_REQUEST_STATUS.APPROVED_NETWORK) {
         if (request.requiresLeadApproval) {
@@ -147,6 +154,12 @@ const ensureConfig = async () => {
 // @route   POST /api/financial-requests
 export const createFinancialRequest = async (req, res, next) => {
   try {
+    const canCreate = hasRole(req.user, ROLE_NAMES.ADMIN, ROLE_NAMES.LEAD_PASTOR, ROLE_NAMES.NETWORK_PASTOR, ROLE_NAMES.TREASURER);
+
+    if (!canCreate) {
+      throw buildError('No tiene permisos para crear solicitudes financieras', 403);
+    }
+
     let {
       branchId,
       requesterUserId,
@@ -342,6 +355,13 @@ export const getFinancialRequests = async (req, res, next) => {
       filter.requesterUser = requesterUserId;
     }
 
+    // Filtrar por permisos de rol
+    const canSeeAll = hasRole(req.user, ROLE_NAMES.ADMIN, ROLE_NAMES.LEAD_PASTOR);
+
+    if (!canSeeAll) {
+      filter.branch = req.user.branch;
+    }
+
     const requests = await FinancialRequest.find(filter)
       .sort({ createdAt: -1 })
       .populate({
@@ -360,6 +380,13 @@ export const getFinancialRequests = async (req, res, next) => {
         select: 'alias bankName accountNumber accountNumberCCI docType docNumber person',
         populate: { path: 'person', select: 'nombres apellidos numeroDocumento' }
       });
+
+    // Asignar supervisor de la rama si no tiene supervisorUser
+    requests.forEach(request => {
+      if (!request.supervisorUser) {
+        request.supervisorUser = request.branch?.managerUser || null;
+      }
+    });
 
     res.status(200).json({
       success: true,
@@ -395,6 +422,11 @@ export const getFinancialRequestById = async (req, res, next) => {
 
     if (!request) {
       throw buildError('Solicitud no encontrada', 404);
+    }
+
+    // Asignar supervisor de la rama si no tiene supervisorUser
+    if (!request.supervisorUser) {
+      request.supervisorUser = request.branch?.managerUser || null;
     }
 
     // Crear state stepper con estados relevantes

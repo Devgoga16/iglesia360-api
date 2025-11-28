@@ -3,14 +3,14 @@ import { CURRENCIES } from './GlobalConfig.js';
 
 export const FINANCIAL_REQUEST_STATUS = Object.freeze({
   CREATED: 'CREATED',
-  APPROVED_NETWORK: 'APPROVED_NETWORK',
-  APPROVED_LEAD: 'APPROVED_LEAD',
-  APPROVED_ADMIN: 'APPROVED_ADMIN',
-  MONEY_DELIVERED: 'MONEY_DELIVERED',
-  EXPENSES_SUBMITTED: 'EXPENSES_SUBMITTED',
-  REMAINDER_REFUNDED: 'REMAINDER_REFUNDED',
-  CLOSED: 'CLOSED',
-  REJECTED: 'REJECTED'
+  APPROVED_NETWORK: 'APPROVED_NETWORK', // aprobacion solo por el encargado de red | Rol: Pastor
+  APPROVED_LEAD: 'APPROVED_LEAD', // aprobacion por el pastor titular | Rol: Pastor Titular | Solo si monto > 500
+  APPROVED_ADMIN: 'APPROVED_ADMIN', // aprobacion por el administrador financiero | Rol: Administrador
+  MONEY_DELIVERED: 'MONEY_DELIVERED', // dinero entregado al solicitante | Rol: Tesorero
+  EXPENSES_SUBMITTED: 'EXPENSES_SUBMITTED', // gastos rendidos por el solicitante | Rol: Solicitante
+  REMAINDER_REFUNDED: 'REMAINDER_REFUNDED', // remanente devuelto | Rol: Solicitante
+  CLOSED: 'CLOSED', // solicitud cerrada | Rol: Administrador
+  REJECTED: 'REJECTED' // solicitud rechazada en cualquier etapa | Rol: Pastor , Pastor Titular, Administrador
 });
 
 export const DEPOSIT_TYPES = Object.freeze({
