@@ -19,6 +19,7 @@ import optionRoutes from './routes/optionRoutes.js';
 import branchRoutes from './routes/branchRoutes.js';
 import financialRequestRoutes from './routes/financialRequestRoutes.js';
 import financeConfigRoutes from './routes/financeConfigRoutes.js';
+import accountRoutes from './routes/accountRoutes.js';
 
 dotenv.config();
 
@@ -92,6 +93,7 @@ app.use('/api/users', userRoutes); // Deprecado - usar auth
 app.use('/api/branches', branchRoutes);
 app.use('/api/financial-requests', financialRequestRoutes);
 app.use('/api/financial-config', financeConfigRoutes);
+app.use('/api/accounts', accountRoutes);
 
 // Manejo de errores
 app.use(notFound);

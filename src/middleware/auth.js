@@ -26,9 +26,17 @@ export const protect = async (req, res, next) => {
     // Obtener usuario del token (incluir password:false pero sí roles y person)
     const user = await User.findById(decoded.id)
       .select('-password')
-      .populate('person')
+      .populate({ path: 'person', populate: { path: 'branch', select: 'name isChurch' } })
       .populate('roles')
-      .populate('branch', 'name');
+      .populate({
+        path: 'branch',
+        select: 'name address isChurch active depth parentBranch manager managerUser',
+        populate: [
+          { path: 'parentBranch', select: 'name isChurch' },
+          { path: 'manager', select: 'nombres apellidos numeroDocumento' },
+          { path: 'managerUser', select: 'username email' }
+        ]
+      });
 
     if (!user) {
       const error = new Error('Usuario no encontrado');

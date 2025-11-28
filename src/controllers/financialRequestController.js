@@ -3,6 +3,7 @@ import FinancialRequest, { DEPOSIT_TYPES, FINANCIAL_REQUEST_STATUS } from '../mo
 import GlobalConfig, { CURRENCIES } from '../models/GlobalConfig.js';
 import Branch from '../models/Branch.js';
 import User from '../models/User.js';
+import Account from '../models/Account.js';
 
 const evidenceRequiredStatuses = new Set([
   FINANCIAL_REQUEST_STATUS.MONEY_DELIVERED,
@@ -148,7 +149,6 @@ export const createFinancialRequest = async (req, res, next) => {
   try {
     let {
       branchId,
-      supervisorUserId,
       requesterUserId,
       description,
       currency,
@@ -158,6 +158,7 @@ export const createFinancialRequest = async (req, res, next) => {
       ownAccountId,
       bankName,
       accountNumber,
+      accountNumberCCI,
       docType,
       docNumber
     } = req.body;
@@ -172,18 +173,6 @@ export const createFinancialRequest = async (req, res, next) => {
 
     if (!mongoose.Types.ObjectId.isValid(branchId)) {
       throw buildError('El identificador de la sucursal es inválido');
-    }
-
-    if (supervisorUserId && !mongoose.Types.ObjectId.isValid(supervisorUserId)) {
-      throw buildError('El identificador del supervisor es inválido');
-    }
-
-    if (supervisorUserId) {
-      const supervisorExists = await User.exists({ _id: supervisorUserId });
-
-      if (!supervisorExists) {
-        throw buildError('El supervisor indicado no existe', 404);
-      }
     }
 
     const normalizedDepositType = String(depositType).toUpperCase();
@@ -223,14 +212,48 @@ export const createFinancialRequest = async (req, res, next) => {
       throw buildError('Debe especificar el solicitante de la solicitud');
     }
 
+    if (!mongoose.Types.ObjectId.isValid(requesterId)) {
+      throw buildError('El identificador del solicitante es inválido');
+    }
+
+    const requesterUserDoc = await User.findById(requesterId).select('person');
+
+    if (!requesterUserDoc) {
+      throw buildError('El solicitante indicado no existe', 404);
+    }
+
+    if (normalizedDepositType === DEPOSIT_TYPES.OWN_ACCOUNT && !requesterUserDoc.person) {
+      throw buildError('El solicitante no tiene una persona asociada para vincular una cuenta propia');
+    }
+
     const requiresLeadApproval = totalAmount > config.maxAmountLeadApproval;
 
-    const normalizedOwnAccountId = ownAccountId === null || ownAccountId === undefined
-      ? null
-      : Number(ownAccountId);
+    let normalizedOwnAccountId = null;
 
-    if (normalizedOwnAccountId !== null && Number.isNaN(normalizedOwnAccountId)) {
-      throw buildError('El identificador de la cuenta propia debe ser numérico');
+    if (ownAccountId) {
+      if (!mongoose.Types.ObjectId.isValid(ownAccountId)) {
+        throw buildError('El identificador de la cuenta propia es inválido');
+      }
+
+      const account = await Account.findById(ownAccountId).select('person active');
+
+      if (!account || !account.active) {
+        throw buildError('La cuenta propia indicada no existe o está inactiva', 404);
+      }
+
+      if (
+        requesterUserDoc.person &&
+        account.person &&
+        !isSameObjectId(account.person, requesterUserDoc.person)
+      ) {
+        throw buildError('La cuenta propia indicada no pertenece a la persona del solicitante');
+      }
+
+      normalizedOwnAccountId = account._id;
+    }
+
+    if (normalizedDepositType === DEPOSIT_TYPES.OWN_ACCOUNT && !normalizedOwnAccountId) {
+      throw buildError('Debe proporcionar una cuenta propia válida para este tipo de abono');
     }
 
     const normalizedCurrency = currency
@@ -249,7 +272,10 @@ export const createFinancialRequest = async (req, res, next) => {
       throw buildError('La sucursal indicada no existe', 404);
     }
 
-    const supervisorUserToAssign = supervisorUserId || branch.managerUser?._id || null;
+    // Obtener el supervisor del branch del solicitante (del token)
+    const requesterBranch = await Branch.findById(req.user.branch).select('managerUser');
+
+    const supervisorUserToAssign = requesterBranch?.managerUser || null;
 
     const financialRequest = await FinancialRequest.create({
       branch: branchId,
@@ -263,6 +289,7 @@ export const createFinancialRequest = async (req, res, next) => {
       ownAccountId: normalizedOwnAccountId,
       bankName: bankName || null,
       accountNumber: accountNumber || null,
+      accountNumberCCI: accountNumberCCI || null,
       docType: docType || null,
       docNumber: docNumber || null,
       requiresLeadApproval,
@@ -273,6 +300,12 @@ export const createFinancialRequest = async (req, res, next) => {
         approved: true,
         evidenceUrls: []
       }]
+    });
+
+    await financialRequest.populate({
+      path: 'ownAccountId',
+      select: 'alias bankName accountNumber accountNumberCCI docType docNumber person',
+      populate: { path: 'person', select: 'nombres apellidos numeroDocumento' }
     });
 
     res.status(201).json({
@@ -321,7 +354,12 @@ export const getFinancialRequests = async (req, res, next) => {
         ]
       })
       .populate('supervisorUser', 'username email')
-      .populate('requesterUser', 'username email');
+      .populate('requesterUser', 'username email')
+      .populate({
+        path: 'ownAccountId',
+        select: 'alias bankName accountNumber accountNumberCCI docType docNumber person',
+        populate: { path: 'person', select: 'nombres apellidos numeroDocumento' }
+      });
 
     res.status(200).json({
       success: true,
@@ -348,15 +386,52 @@ export const getFinancialRequestById = async (req, res, next) => {
         ]
       })
       .populate('supervisorUser', 'username email')
-      .populate('requesterUser', 'username email');
+      .populate('requesterUser', 'username email')
+      .populate({
+        path: 'ownAccountId',
+        select: 'alias bankName accountNumber accountNumberCCI docType docNumber person',
+        populate: { path: 'person', select: 'nombres apellidos numeroDocumento' }
+      });
 
     if (!request) {
       throw buildError('Solicitud no encontrada', 404);
     }
 
+    // Crear state stepper con estados relevantes
+    const completedStatuses = new Set(request.statusHistory.map(h => h.status));
+    const relevantStatuses = [FINANCIAL_REQUEST_STATUS.CREATED, FINANCIAL_REQUEST_STATUS.APPROVED_NETWORK];
+
+    if (request.requiresLeadApproval) {
+      relevantStatuses.push(FINANCIAL_REQUEST_STATUS.APPROVED_LEAD);
+    }
+
+    relevantStatuses.push(
+      FINANCIAL_REQUEST_STATUS.APPROVED_ADMIN,
+      FINANCIAL_REQUEST_STATUS.MONEY_DELIVERED,
+      FINANCIAL_REQUEST_STATUS.EXPENSES_SUBMITTED
+    );
+
+    if (request.remainderAmount > 0) {
+      relevantStatuses.push(FINANCIAL_REQUEST_STATUS.REMAINDER_REFUNDED);
+    }
+
+    relevantStatuses.push(FINANCIAL_REQUEST_STATUS.CLOSED);
+
+    if (completedStatuses.has(FINANCIAL_REQUEST_STATUS.REJECTED)) {
+      relevantStatuses.push(FINANCIAL_REQUEST_STATUS.REJECTED);
+    }
+
+    const stateStepper = relevantStatuses.map(status => ({
+      status,
+      completed: completedStatuses.has(status)
+    }));
+
     res.status(200).json({
       success: true,
-      data: request
+      data: {
+        ...request.toObject(),
+        stateStepper
+      }
     });
   } catch (error) {
     next(error);
@@ -384,13 +459,15 @@ export const updateFinancialRequest = async (req, res, next) => {
       throw buildError('Solo el solicitante o un administrador pueden editar la solicitud', 403);
     }
 
+    const requesterUserDoc = await User.findById(request.requesterUser).select('person');
+
     const directFields = [
       'description',
       'currency',
       'depositType',
-      'ownAccountId',
       'bankName',
       'accountNumber',
+      'accountNumberCCI',
       'docType',
       'docNumber'
     ];
@@ -409,6 +486,10 @@ export const updateFinancialRequest = async (req, res, next) => {
       }
 
       request.depositType = normalizedDepositType;
+
+      if (normalizedDepositType !== DEPOSIT_TYPES.OWN_ACCOUNT) {
+        request.ownAccountId = null;
+      }
     }
 
     if (Object.prototype.hasOwnProperty.call(req.body, 'currency')) {
@@ -427,13 +508,25 @@ export const updateFinancialRequest = async (req, res, next) => {
       if (rawOwnAccountId === null || rawOwnAccountId === undefined || rawOwnAccountId === '') {
         request.ownAccountId = null;
       } else {
-        const numericId = Number(rawOwnAccountId);
-
-        if (Number.isNaN(numericId)) {
-          throw buildError('El identificador de la cuenta propia debe ser numérico');
+        if (!mongoose.Types.ObjectId.isValid(rawOwnAccountId)) {
+          throw buildError('El identificador de la cuenta propia es inválido');
         }
 
-        request.ownAccountId = numericId;
+        const account = await Account.findById(rawOwnAccountId).select('person active');
+
+        if (!account || !account.active) {
+          throw buildError('La cuenta propia indicada no existe o está inactiva', 404);
+        }
+
+        if (
+          requesterUserDoc?.person &&
+          account.person &&
+          !isSameObjectId(account.person, requesterUserDoc.person)
+        ) {
+          throw buildError('La cuenta propia indicada no pertenece a la persona del solicitante');
+        }
+
+        request.ownAccountId = account._id;
       }
     }
 
@@ -511,7 +604,21 @@ export const updateFinancialRequest = async (req, res, next) => {
     request.totalAmount = recalculatedTotal;
     request.requiresLeadApproval = recalculatedTotal > config.maxAmountLeadApproval;
 
+    if (request.depositType === DEPOSIT_TYPES.OWN_ACCOUNT && !requesterUserDoc?.person) {
+      throw buildError('El solicitante no tiene una persona asociada para vincular una cuenta propia');
+    }
+
+    if (request.depositType === DEPOSIT_TYPES.OWN_ACCOUNT && !request.ownAccountId) {
+      throw buildError('Debe proporcionar una cuenta propia válida para este tipo de abono');
+    }
+
     await request.save();
+
+    await request.populate({
+      path: 'ownAccountId',
+      select: 'alias bankName accountNumber accountNumberCCI docType docNumber person',
+      populate: { path: 'person', select: 'nombres apellidos numeroDocumento' }
+    });
 
     res.status(200).json({
       success: true,
@@ -612,6 +719,12 @@ export const changeFinancialRequestStatus = async (req, res, next) => {
     request.statusHistory.push(historyEntry);
 
     await request.save();
+
+    await request.populate({
+      path: 'ownAccountId',
+      select: 'alias bankName accountNumber accountNumberCCI docType docNumber person',
+      populate: { path: 'person', select: 'nombres apellidos numeroDocumento' }
+    });
 
     res.status(200).json({
       success: true,

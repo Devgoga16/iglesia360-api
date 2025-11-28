@@ -50,6 +50,11 @@ const branchSchema = new mongoose.Schema({
   active: {
     type: Boolean,
     default: true
+  },
+  // Marca si la sucursal corresponde a una iglesia (true) o a un ministerio (false)
+  isChurch: {
+    type: Boolean,
+    default: true
   }
 }, {
   timestamps: true

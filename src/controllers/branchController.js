@@ -131,11 +131,18 @@ export const createBranch = async (req, res, next) => {
       name,
       address,
       parentBranchId = null,
-      managerPersonId
+      managerPersonId,
+      isChurch = true
     } = req.body;
 
     if (!managerPersonId) {
       const error = new Error('Debe especificar el encargado de la sucursal');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (typeof isChurch !== 'boolean') {
+      const error = new Error('isChurch debe ser un valor booleano');
       error.statusCode = 400;
       throw error;
     }
@@ -161,7 +168,8 @@ export const createBranch = async (req, res, next) => {
       address,
       parentBranch: parentBranchId || null,
       manager: managerPersonId,
-      managerUser: managerUser ? managerUser._id : null
+      managerUser: managerUser ? managerUser._id : null,
+      isChurch
     };
 
     const branch = await Branch.create(payload);
@@ -202,7 +210,8 @@ export const updateBranch = async (req, res, next) => {
       name,
       address,
       parentBranchId,
-      managerPersonId
+      managerPersonId,
+      isChurch
     } = req.body;
 
     if (name !== undefined) {
@@ -230,6 +239,15 @@ export const updateBranch = async (req, res, next) => {
         return next(error);
       }
       branch.manager = managerPersonId;
+    }
+
+    if (isChurch !== undefined) {
+      if (typeof isChurch !== 'boolean') {
+        const error = new Error('isChurch debe ser un valor booleano');
+        error.statusCode = 400;
+        return next(error);
+      }
+      branch.isChurch = isChurch;
     }
 
     const managerUser = await User.findOne({ person: branch.manager }).select('_id');

@@ -138,7 +138,8 @@ const financialRequestSchema = new mongoose.Schema({
   },
   // Identificador interno de la cuenta propia cuando corresponde
   ownAccountId: {
-    type: Number,
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
     default: null
   },
   // Banco destino cuando el depósito es externo
@@ -150,6 +151,12 @@ const financialRequestSchema = new mongoose.Schema({
   accountNumber: {
     type: String,
     trim: true
+  },
+  // Código de Cuenta Interbancario (CCI) para depósitos externos
+  accountNumberCCI: {
+    type: String,
+    trim: true,
+    maxlength: [20, 'El CCI no puede exceder 20 caracteres']
   },
   // Tipo de documento que respalda la entrega
   docType: {
@@ -223,8 +230,18 @@ financialRequestSchema.methods.canTransitionTo = function(nextStatus) {
 };
 
 financialRequestSchema.pre('validate', function(next) {
-  if (this.depositType === DEPOSIT_TYPES.OWN_ACCOUNT && (this.ownAccountId === null || this.ownAccountId === undefined)) {
-    return next(new Error('Debe especificar la cuenta de abono propia'));
+  if (this.depositType === DEPOSIT_TYPES.OWN_ACCOUNT) {
+    if (!this.ownAccountId) {
+      return next(new Error('Debe especificar la cuenta de abono propia'));
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(this.ownAccountId)) {
+      return next(new Error('El identificador de la cuenta propia es inválido'));
+    }
+  }
+
+  if (this.ownAccountId && !mongoose.Types.ObjectId.isValid(this.ownAccountId)) {
+    return next(new Error('El identificador de la cuenta propia es inválido'));
   }
 
   if (this.depositType === DEPOSIT_TYPES.EXTERNAL) {
