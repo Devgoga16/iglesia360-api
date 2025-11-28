@@ -26,8 +26,17 @@ export const protect = async (req, res, next) => {
     // Obtener usuario del token (incluir password:false pero sí roles y person)
     const user = await User.findById(decoded.id)
       .select('-password')
-      .populate('person')
-      .populate('roles');
+      .populate({ path: 'person', populate: { path: 'branch', select: 'name isChurch' } })
+      .populate('roles')
+      .populate({
+        path: 'branch',
+        select: 'name address isChurch active depth parentBranch manager managerUser',
+        populate: [
+          { path: 'parentBranch', select: 'name isChurch' },
+          { path: 'manager', select: 'nombres apellidos numeroDocumento' },
+          { path: 'managerUser', select: 'username email' }
+        ]
+      });
 
     if (!user) {
       const error = new Error('Usuario no encontrado');
@@ -71,10 +80,11 @@ export const authorize = (...rolesPermitidos) => {
     }
 
     // Obtener nombres de roles del usuario
-    const userRoles = req.user.roles.map(rol => rol.nombre);
+    const userRoles = req.user.roles.map(rol => (rol.nombre || '').toUpperCase());
+    const requiredRoles = rolesPermitidos.map(rol => rol.toUpperCase());
 
     // Verificar si el usuario tiene alguno de los roles permitidos
-    const tienePermiso = rolesPermitidos.some(rol => userRoles.includes(rol));
+    const tienePermiso = requiredRoles.some(rol => userRoles.includes(rol));
 
     if (!tienePermiso) {
       const error = new Error(`No tiene permisos. Roles requeridos: ${rolesPermitidos.join(', ')}`);

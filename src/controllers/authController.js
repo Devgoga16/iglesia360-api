@@ -1,6 +1,82 @@
+import mongoose from 'mongoose';
 import User from '../models/User.js';
 import Person from '../models/Person.js';
+import Branch from '../models/Branch.js';
 import { generateToken } from '../utils/jwt.js';
+
+const populateBranchForTree = (query) => query
+  .populate('parentBranch', 'name isChurch')
+  .populate('manager', 'nombres apellidos numeroDocumento')
+  .populate('managerUser', 'username email');
+
+const buildBranchHierarchy = async (rootBranchId) => {
+  if (!rootBranchId) {
+    return null;
+  }
+
+  const criteria = {
+    $or: [
+      { _id: rootBranchId },
+      { ancestors: rootBranchId }
+    ]
+  };
+
+  const branches = await populateBranchForTree(
+    Branch.find(criteria).sort({ depth: 1, name: 1 })
+  ).lean();
+
+  if (!branches.length) {
+    return null;
+  }
+
+  const branchesById = new Map();
+
+  branches.forEach((branch) => {
+    branchesById.set(branch._id.toString(), { ...branch, children: [] });
+  });
+
+  let rootNode = null;
+
+  const getId = (value) => {
+    if (!value) {
+      return null;
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (value._id) {
+      return value._id.toString();
+    }
+    return value.toString();
+  };
+
+  branchesById.forEach((branch) => {
+    const currentId = branch._id.toString();
+    if (currentId === rootBranchId.toString()) {
+      rootNode = branch;
+    }
+
+    const parentId = getId(branch.parentBranch);
+
+    if (parentId && branchesById.has(parentId)) {
+      branchesById.get(parentId).children.push(branch);
+    }
+  });
+
+  if (!rootNode) {
+    return null;
+  }
+
+  const toTree = (node) => ({
+    branch: (() => {
+      const { children, ...rest } = node;
+      return rest;
+    })(),
+    children: node.children.map(toTree)
+  });
+
+  return toTree(rootNode);
+};
 
 /**
  * @desc    Login de usuario
@@ -22,8 +98,17 @@ export const login = async (req, res, next) => {
       $or: [{ username }, { email: username }]
     })
       .select('+password')
-      .populate('person')
-      .populate('roles');
+      .populate({ path: 'person', populate: { path: 'branch', select: 'name isChurch' } })
+      .populate('roles')
+      .populate({
+        path: 'branch',
+        select: 'name address isChurch active depth parentBranch manager managerUser',
+        populate: [
+          { path: 'parentBranch', select: 'name isChurch' },
+          { path: 'manager', select: 'nombres apellidos numeroDocumento' },
+          { path: 'managerUser', select: 'username email' }
+        ]
+      });
 
     if (!user) {
       const error = new Error('Credenciales inválidas');
@@ -116,6 +201,8 @@ export const login = async (req, res, next) => {
     const userResponse = user.toObject();
     delete userResponse.password;
 
+    userResponse.branch = await buildBranchHierarchy(user.branch?._id || user.branch);
+
     res.status(200).json({
       success: true,
       data: {
@@ -144,6 +231,7 @@ export const register = async (req, res, next) => {
       fechaNacimiento,
       telefono,
       direccion,
+      branchId,
       // Datos de usuario
       username, 
       email, 
@@ -158,9 +246,29 @@ export const register = async (req, res, next) => {
       return next(error);
     }
 
+    if (!branchId) {
+      const error = new Error('Debe especificar la sucursal del usuario');
+      error.statusCode = 400;
+      return next(error);
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(branchId)) {
+      const error = new Error('El identificador de la sucursal es inválido');
+      error.statusCode = 400;
+      return next(error);
+    }
+
     if (!username || !email || !password || !roles || roles.length === 0) {
       const error = new Error('Username, email, password y al menos un rol son requeridos');
       error.statusCode = 400;
+      return next(error);
+    }
+
+    const branchExists = await Branch.exists({ _id: branchId });
+
+    if (!branchExists) {
+      const error = new Error('La sucursal indicada no existe');
+      error.statusCode = 404;
       return next(error);
     }
 
@@ -192,7 +300,8 @@ export const register = async (req, res, next) => {
       numeroDocumento,
       fechaNacimiento,
       telefono,
-      direccion
+      direccion,
+      branch: branchId
     });
 
     // Crear usuario
@@ -201,12 +310,22 @@ export const register = async (req, res, next) => {
       email,
       password,
       person: person._id,
-      roles
+      roles,
+      branch: branchId
     });
 
     // Poblar datos
-    await user.populate('person');
+    await user.populate({ path: 'person', populate: { path: 'branch', select: 'name isChurch' } });
     await user.populate('roles');
+    await user.populate({
+      path: 'branch',
+      select: 'name address isChurch active depth parentBranch manager managerUser',
+      populate: [
+        { path: 'parentBranch', select: 'name isChurch' },
+        { path: 'manager', select: 'nombres apellidos numeroDocumento' },
+        { path: 'managerUser', select: 'username email' }
+      ]
+    });
 
     // Generar token
     const token = generateToken(user._id);
@@ -217,6 +336,7 @@ export const register = async (req, res, next) => {
     // Remover password de la respuesta
     const userResponse = user.toObject();
     delete userResponse.password;
+    userResponse.branch = await buildBranchHierarchy(user.branch?._id || user.branch);
 
     res.status(201).json({
       success: true,
@@ -240,10 +360,16 @@ export const getMe = async (req, res, next) => {
     // req.user ya viene del middleware protect
     const permisos = await req.user.obtenerPermisos();
 
+    const userData = req.user.toObject();
+    userData.branch = await buildBranchHierarchy(req.user.branch?._id || req.user.branch);
+
+    const token = generateToken(req.user._id);
+
     res.status(200).json({
       success: true,
       data: {
-        user: req.user,
+        token,
+        user: userData,
         permisos
       }
     });
