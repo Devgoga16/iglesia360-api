@@ -41,11 +41,13 @@ const personSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
-  // Sucursal a la que pertenece la persona
-  branch: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Branch',
-    required: [true, 'La sucursal asignada es requerida']
+  // Sucursales asignadas a la persona (puede participar en múltiples)
+  branches: {
+    type: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Branch'
+    }],
+    default: []
   },
   // Marca de estado lógico para la persona
   activo: {
@@ -59,11 +61,19 @@ const personSchema = new mongoose.Schema({
 // Índice para búsquedas
 personSchema.index({ numeroDocumento: 1 });
 personSchema.index({ apellidos: 1, nombres: 1 });
-personSchema.index({ branch: 1 });
+personSchema.index({ branches: 1 });
 
 // Virtual para nombre completo
 personSchema.virtual('nombreCompleto').get(function() {
   return `${this.nombres} ${this.apellidos}`;
+});
+
+// Virtual de compatibilidad para exponer la primera sucursal como branch
+personSchema.virtual('branch').get(function() {
+  if (!Array.isArray(this.branches) || this.branches.length === 0) {
+    return null;
+  }
+  return this.branches[0];
 });
 
 // Virtual para relacionar al usuario asociado

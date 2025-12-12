@@ -109,6 +109,103 @@ const swaggerDefinition = {
           }
         }
       },
+      BranchAssignmentInput: {
+        type: 'object',
+        description: 'Asignación de sucursal/roles para una persona',
+        required: ['branch', 'roles'],
+        properties: {
+          branch: {
+            type: 'string',
+            description: 'ID de la sucursal asignada',
+            example: '665b3afcdf2a4e0d9c125b42'
+          },
+          roles: {
+            type: 'array',
+            description: 'Listado de roles habilitados en esa sucursal',
+            items: {
+              type: 'string'
+            },
+            example: ['665b3afcdf2a4e0d9c125b45', '665b3afcdf2a4e0d9c125b46']
+          },
+          isPrimary: {
+            type: 'boolean',
+            description: 'Marca si la sucursal es la principal por defecto',
+            example: true
+          },
+          activo: {
+            type: 'boolean',
+            description: 'Permite activar/desactivar la asignación',
+            example: true
+          }
+        }
+      },
+      BranchAssignmentResponse: {
+        type: 'object',
+        properties: {
+          _id: {
+            type: 'string'
+          },
+          branch: {
+            type: 'object',
+            description: 'Documento de la sucursal poblada'
+          },
+          roles: {
+            type: 'array',
+            description: 'Roles poblados',
+            items: {
+              type: 'object'
+            }
+          },
+          isPrimary: {
+            type: 'boolean'
+          },
+          activo: {
+            type: 'boolean'
+          },
+          permisos: {
+            type: 'array',
+            description: 'Módulos/opciones derivados de los roles',
+            items: {
+              type: 'object'
+            }
+          }
+        }
+      },
+      AuthEnvelope: {
+        type: 'object',
+        properties: {
+          token: {
+            type: 'string',
+            description: 'JWT para futuros requests'
+          },
+          user: {
+            type: 'object',
+            description: 'Usuario autenticado incluyendo assignments',
+            properties: {
+              _id: { type: 'string' },
+              username: { type: 'string' },
+              email: { type: 'string', format: 'email' },
+              assignments: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/BranchAssignmentResponse' }
+              },
+              activeAssignment: {
+                $ref: '#/components/schemas/BranchAssignmentResponse'
+              },
+              currentBranchId: {
+                type: 'string'
+              }
+            }
+          },
+          permisos: {
+            type: 'array',
+            description: 'Permisos derivados del branch seleccionado',
+            items: {
+              type: 'object'
+            }
+          }
+        }
+      },
       SuccessResponse: {
         type: 'object',
         properties: {

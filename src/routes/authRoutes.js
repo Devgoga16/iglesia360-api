@@ -17,6 +17,13 @@ const router = express.Router();
  *     summary: Login de usuario
  *     tags: [Auth]
  *     description: Autentica un usuario y retorna un token JWT
+ *     parameters:
+ *       - in: header
+ *         name: x-branch-id
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: ID de sucursal que el cliente desea activar para la sesión (puede enviarse también como branchId en el cuerpo)
  *     requestBody:
  *       required: true
  *       content:
@@ -35,6 +42,10 @@ const router = express.Router();
  *                 type: string
  *                 description: Contraseña del usuario
  *                 example: password123
+ *               branchId:
+ *                 type: string
+ *                 description: ID de sucursal a activar (prioridad sobre el header)
+ *                 example: "665b3afcdf2a4e0d9c125b42"
  *     responses:
  *       200:
  *         description: Login exitoso
@@ -45,17 +56,8 @@ const router = express.Router();
  *               properties:
  *                 success:
  *                   type: boolean
- *                   example: true
  *                 data:
- *                   type: object
- *                   properties:
- *                     token:
- *                       type: string
- *                       example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
- *                     user:
- *                       type: object
- *                     permisos:
- *                       type: array
+ *                   $ref: '#/components/schemas/AuthEnvelope'
  *       401:
  *         $ref: '#/components/responses/NotFound'
  */
@@ -83,7 +85,7 @@ router.post('/login', login);
  *               - username
  *               - email
  *               - password
- *               - roles
+ *               - assignments
  *             properties:
  *               nombres:
  *                 type: string
@@ -117,14 +119,29 @@ router.post('/login', login);
  *               password:
  *                 type: string
  *                 example: password123
- *               roles:
+ *               assignments:
  *                 type: array
+ *                 description: Listado de sucursales y roles asignados (la primera se marca como primaria si ninguna lo está)
  *                 items:
- *                   type: string
- *                 example: ["507f1f77bcf86cd799439011"]
+ *                   $ref: '#/components/schemas/BranchAssignmentInput'
+ *                 example:
+ *                   - branch: "665b3afcdf2a4e0d9c125b42"
+ *                     roles: ["665b3afcdf2a4e0d9c125b45", "665b3afcdf2a4e0d9c125b46"]
+ *                     isPrimary: true
+ *                   - branch: "665b3afcdf2a4e0d9c125b50"
+ *                     roles: ["665b3afcdf2a4e0d9c125b48"]
  *     responses:
  *       201:
  *         description: Usuario creado exitosamente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/AuthEnvelope'
  *       400:
  *         $ref: '#/components/responses/BadRequest'
  */
@@ -139,9 +156,25 @@ router.post('/register', register);
  *     security:
  *       - bearerAuth: []
  *     description: Retorna la información del usuario actual y sus permisos
+ *     parameters:
+ *       - in: header
+ *         name: x-branch-id
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Sucursal a activar para recalcular permisos (si se omite usa la primaria)
  *     responses:
  *       200:
  *         description: Perfil obtenido exitosamente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/AuthEnvelope'
  *       401:
  *         $ref: '#/components/responses/NotFound'
  */
@@ -189,6 +222,13 @@ router.put('/updatepassword', protect, updatePassword);
  *     security:
  *       - bearerAuth: []
  *     description: Retorna todos los módulos y opciones a los que el usuario tiene acceso
+ *     parameters:
+ *       - in: header
+ *         name: x-branch-id
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Sucursal a activar para devolver los permisos correspondientes
  *     responses:
  *       200:
  *         description: Permisos obtenidos exitosamente
@@ -202,6 +242,7 @@ router.put('/updatepassword', protect, updatePassword);
  *                   example: true
  *                 data:
  *                   type: array
+ *                   description: Lista de módulos/opciones calculados para la sucursal seleccionada
  *                   items:
  *                     type: object
  *       401:

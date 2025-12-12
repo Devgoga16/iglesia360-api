@@ -10,7 +10,10 @@ const populateBranch = (query) => query
 
 const syncManagerAssignments = async (branchId, managerPersonId, managerUserId) => {
   if (managerPersonId) {
-    await Person.findByIdAndUpdate(managerPersonId, { branch: branchId });
+    await Person.findByIdAndUpdate(
+      managerPersonId,
+      { $addToSet: { branches: branchId } }
+    );
   }
 
   if (managerUserId) {

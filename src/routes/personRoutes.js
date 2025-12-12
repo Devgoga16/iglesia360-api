@@ -40,6 +40,7 @@ const router = express.Router();
  *               - tipoDocumento
  *               - numeroDocumento
  *               - fechaNacimiento
+ *               - branches
  *             properties:
  *               nombres:
  *                 type: string
@@ -64,6 +65,12 @@ const router = express.Router();
  *               direccion:
  *                 type: string
  *                 example: Av. Principal 123
+ *               branches:
+ *                 type: array
+ *                 description: Lista de IDs de sucursales asignadas
+ *                 items:
+ *                   type: string
+ *                 example: ["64f3a18b9d1c2a4f3c1b5678", "64f3a18b9d1c2a4f3c1b5679"]
  *     responses:
  *       201:
  *         description: Persona creada exitosamente

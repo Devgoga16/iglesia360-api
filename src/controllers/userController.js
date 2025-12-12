@@ -8,7 +8,7 @@ import User from '../models/User.js';
 export const getUsers = async (req, res, next) => {
   try {
     const users = await User.find({ activo: true })
-      .populate({ path: 'person', populate: { path: 'branch', select: 'name' } })
+      .populate({ path: 'person', populate: { path: 'branches', select: 'name' } })
       .populate('roles')
       .populate('branch', 'name');
     res.status(200).json({
@@ -26,7 +26,7 @@ export const getUsers = async (req, res, next) => {
 export const getUserById = async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id)
-      .populate({ path: 'person', populate: { path: 'branch', select: 'name' } })
+      .populate({ path: 'person', populate: { path: 'branches', select: 'name' } })
       .populate('roles')
       .populate('branch', 'name');
     
@@ -71,7 +71,7 @@ export const createUser = async (req, res, next) => {
 
     const user = await User.create(req.body);
 
-    await user.populate({ path: 'person', populate: { path: 'branch', select: 'name' } });
+    await user.populate({ path: 'person', populate: { path: 'branches', select: 'name' } });
     await user.populate('roles');
     await user.populate('branch', 'name');
     res.status(201).json({
@@ -111,7 +111,7 @@ export const createUserFromPerson = async (req, res, next) => {
       return next(error);
     }
 
-    const person = await Person.findById(personId).populate('branch', 'name');
+    const person = await Person.findById(personId).populate('branches', 'name');
 
     if (!person || !person.activo) {
       const error = new Error('La persona indicada no existe o está inactiva');
@@ -137,13 +137,31 @@ export const createUserFromPerson = async (req, res, next) => {
       return next(error);
     }
 
-    if (!person.branch) {
-      const error = new Error('La persona no tiene una sucursal asignada');
+    const personBranchIds = (person.branches || []).map((branchId) => branchId.toString());
+
+    if (!personBranchIds.length) {
+      const error = new Error('La persona no tiene sucursales asignadas');
       error.statusCode = 400;
       return next(error);
     }
 
-    const branchExists = await Branch.exists({ _id: person.branch });
+    const requestedBranchId = req.body.branchId || req.body.branch || personBranchIds[0];
+
+    if (!mongoose.Types.ObjectId.isValid(requestedBranchId)) {
+      const error = new Error('El identificador de la sucursal es inválido');
+      error.statusCode = 400;
+      return next(error);
+    }
+
+    const normalizedBranchId = requestedBranchId.toString();
+
+    if (!personBranchIds.includes(normalizedBranchId)) {
+      const error = new Error('La sucursal indicada no está asignada a la persona');
+      error.statusCode = 400;
+      return next(error);
+    }
+
+    const branchExists = await Branch.exists({ _id: normalizedBranchId });
 
     if (!branchExists) {
       const error = new Error('La sucursal asociada a la persona no existe');
@@ -157,10 +175,10 @@ export const createUserFromPerson = async (req, res, next) => {
       password,
       person: personId,
       roles,
-      branch: person.branch
+      branch: normalizedBranchId
     });
 
-    await user.populate({ path: 'person', populate: { path: 'branch', select: 'name' } });
+    await user.populate({ path: 'person', populate: { path: 'branches', select: 'name' } });
     await user.populate('roles');
     await user.populate('branch', 'name');
 
@@ -204,7 +222,7 @@ export const updateUser = async (req, res, next) => {
       req.body,
       { new: true, runValidators: true }
     )
-      .populate({ path: 'person', populate: { path: 'branch', select: 'name' } })
+      .populate({ path: 'person', populate: { path: 'branches', select: 'name' } })
       .populate('roles')
       .populate('branch', 'name');
 

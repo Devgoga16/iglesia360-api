@@ -1,81 +1,202 @@
-import mongoose from 'mongoose';
 import User from '../models/User.js';
 import Person from '../models/Person.js';
-import Branch from '../models/Branch.js';
+import Option from '../models/Option.js';
 import { generateToken } from '../utils/jwt.js';
+import {
+  normalizeAssignmentsInput,
+  persistPersonAssignments,
+  getPersonAssignments,
+  aggregateRolesFromAssignments,
+  getPrimaryAssignment,
+  findAssignmentByBranch
+} from '../services/personAssignmentsService.js';
 
-const populateBranchForTree = (query) => query
-  .populate('parentBranch', 'name isChurch')
-  .populate('manager', 'nombres apellidos numeroDocumento')
-  .populate('managerUser', 'username email');
+const buildPermissionsByRoles = async (roles = []) => {
+  const roleRegistry = new Map();
 
-const buildBranchHierarchy = async (rootBranchId) => {
-  if (!rootBranchId) {
+  roles.forEach((role) => {
+    if (!role) {
+      return;
+    }
+
+    const roleId = role._id ? role._id.toString() : role.toString();
+
+    if (!roleId) {
+      return;
+    }
+
+    if (!roleRegistry.has(roleId)) {
+      roleRegistry.set(roleId, {
+        rol: role._id ? {
+          _id: role._id,
+          nombre: role.nombre,
+          icono: role.icono,
+          descripcion: role.descripcion
+        } : { _id: roleId },
+        modulos: [],
+        modulesIndex: new Map()
+      });
+    }
+  });
+
+  const uniqueRoleIds = [...roleRegistry.keys()];
+
+  if (!uniqueRoleIds.length) {
+    return [];
+  }
+
+  const opciones = await Option.find({
+    roles: { $in: uniqueRoleIds },
+    activo: true
+  })
+    .populate('module')
+    .sort({ 'module.orden': 1, orden: 1 })
+    .lean();
+
+  opciones.forEach((opcion) => {
+    const moduleId = opcion.module._id.toString();
+    const optionRoleIds = (opcion.roles || []).map((roleId) => roleId.toString());
+
+    optionRoleIds.forEach((roleId) => {
+      if (!roleRegistry.has(roleId)) {
+        return;
+      }
+
+      const entry = roleRegistry.get(roleId);
+
+      if (!entry.modulesIndex.has(moduleId)) {
+        const modulePayload = {
+          module: {
+            _id: opcion.module._id,
+            nombre: opcion.module.nombre,
+            descripcion: opcion.module.descripcion,
+            orden: opcion.module.orden
+          },
+          opciones: []
+        };
+
+        entry.modulesIndex.set(moduleId, modulePayload);
+        entry.modulos.push(modulePayload);
+      }
+
+      entry.modulesIndex.get(moduleId).opciones.push({
+        _id: opcion._id,
+        nombre: opcion.nombre,
+        ruta: opcion.ruta,
+        orden: opcion.orden
+      });
+    });
+  });
+
+  return uniqueRoleIds.map((roleId) => {
+    const { modulesIndex, ...entry } = roleRegistry.get(roleId);
+    return {
+      rol: entry.rol,
+      modulos: entry.modulos
+    };
+  });
+};
+
+const hydrateBranchAssignments = async (assignments = []) => {
+  const hydrated = [];
+
+  for (const assignment of assignments) {
+    const rolesWithPermissions = await buildPermissionsByRoles(assignment.roles);
+
+    hydrated.push({
+      _id: assignment._id,
+      branch: assignment.branch,
+      roles: rolesWithPermissions.map(({ rol, modulos }) => ({
+        _id: rol._id,
+        nombre: rol.nombre,
+        icono: rol.icono,
+        descripcion: rol.descripcion,
+        modulos
+      })),
+      isPrimary: assignment.isPrimary,
+      activo: assignment.activo
+    });
+  }
+
+  return hydrated;
+};
+
+const resolveBranchId = (assignment) => {
+  if (!assignment?.branch) {
     return null;
   }
 
-  const criteria = {
-    $or: [
-      { _id: rootBranchId },
-      { ancestors: rootBranchId }
-    ]
+  if (assignment.branch._id) {
+    return assignment.branch._id.toString();
+  }
+
+  return assignment.branch.toString();
+};
+
+const resolveAssignmentsFromRequest = async (body) => {
+  const assignmentsFromPayload = await normalizeAssignmentsInput(body.assignments);
+
+  if (assignmentsFromPayload) {
+    return assignmentsFromPayload;
+  }
+
+  if (body.branchId && Array.isArray(body.roles) && body.roles.length) {
+    return normalizeAssignmentsInput([
+      {
+        branch: body.branchId,
+        roles: body.roles,
+        isPrimary: true
+      }
+    ], { required: true });
+  }
+
+  const error = new Error('Debe especificar assignments con sucursales y roles');
+  error.statusCode = 400;
+  throw error;
+};
+
+const selectAssignment = (assignments, branchId) => {
+  const explicit = findAssignmentByBranch(assignments, branchId);
+  return explicit || getPrimaryAssignment(assignments);
+};
+
+const buildAuthPayload = async ({ user, assignments, selectedAssignment }) => {
+  if (!Array.isArray(assignments) || !assignments.length) {
+    const error = new Error('El usuario no tiene sucursales activas configuradas');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const effectiveAssignment = selectedAssignment || getPrimaryAssignment(assignments);
+
+  if (!effectiveAssignment) {
+    const error = new Error('No se encontraron asignaciones válidas para el usuario');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const hydratedAssignments = await hydrateBranchAssignments(assignments);
+  const effectiveId = effectiveAssignment._id?.toString();
+  const activeAssignment = effectiveId
+    ? hydratedAssignments.find((assignment) => assignment._id.toString() === effectiveId)
+    : hydratedAssignments[0];
+
+  const userResponse = user.toObject();
+  delete userResponse.password;
+  delete userResponse.branch;
+  delete userResponse.roles;
+  userResponse.assignments = hydratedAssignments;
+  userResponse.activeAssignment = activeAssignment;
+  userResponse.currentBranchId = resolveBranchId(activeAssignment);
+
+  return {
+    user: userResponse,
+    permisos: activeAssignment?.roles || []
   };
+};
 
-  const branches = await populateBranchForTree(
-    Branch.find(criteria).sort({ depth: 1, name: 1 })
-  ).lean();
-
-  if (!branches.length) {
-    return null;
-  }
-
-  const branchesById = new Map();
-
-  branches.forEach((branch) => {
-    branchesById.set(branch._id.toString(), { ...branch, children: [] });
-  });
-
-  let rootNode = null;
-
-  const getId = (value) => {
-    if (!value) {
-      return null;
-    }
-    if (typeof value === 'string') {
-      return value;
-    }
-    if (value._id) {
-      return value._id.toString();
-    }
-    return value.toString();
-  };
-
-  branchesById.forEach((branch) => {
-    const currentId = branch._id.toString();
-    if (currentId === rootBranchId.toString()) {
-      rootNode = branch;
-    }
-
-    const parentId = getId(branch.parentBranch);
-
-    if (parentId && branchesById.has(parentId)) {
-      branchesById.get(parentId).children.push(branch);
-    }
-  });
-
-  if (!rootNode) {
-    return null;
-  }
-
-  const toTree = (node) => ({
-    branch: (() => {
-      const { children, ...rest } = node;
-      return rest;
-    })(),
-    children: node.children.map(toTree)
-  });
-
-  return toTree(rootNode);
+const extractRequestedBranchId = (req) => {
+  return req.body?.branchId || req.headers['x-branch-id'] || req.query?.branchId || null;
 };
 
 /**
@@ -98,7 +219,7 @@ export const login = async (req, res, next) => {
       $or: [{ username }, { email: username }]
     })
       .select('+password')
-      .populate({ path: 'person', populate: { path: 'branch', select: 'name isChurch' } })
+      .populate({ path: 'person', populate: { path: 'branches', select: 'name isChurch' } })
       .populate('roles')
       .populate({
         path: 'branch',
@@ -146,69 +267,24 @@ export const login = async (req, res, next) => {
     // Resetear intentos fallidos
     await user.resetearIntentosFallidos();
 
-    // Generar token
+    const personId = user.person?._id || user.person;
+    const assignments = await getPersonAssignments(personId);
+    const requestedBranchId = extractRequestedBranchId(req);
+    const selectedAssignment = selectAssignment(assignments, requestedBranchId);
+
     const token = generateToken(user._id);
-
-    // Obtener permisos agrupados por rol
-    const Option = await import('../models/Option.js').then(m => m.default);
-    const permisosPorRol = [];
-
-    for (const rol of user.roles) {
-      const opciones = await Option.find({
-        roles: rol._id,
-        activo: true
-      })
-      .populate('module')
-      .sort({ 'module.orden': 1, orden: 1 });
-
-      const modulosConOpciones = {};
-      
-      opciones.forEach(opcion => {
-        const moduleId = opcion.module._id.toString();
-        
-        if (!modulosConOpciones[moduleId]) {
-          modulosConOpciones[moduleId] = {
-            module: {
-              _id: opcion.module._id,
-              nombre: opcion.module.nombre,
-              descripcion: opcion.module.descripcion,
-              orden: opcion.module.orden
-            },
-            opciones: []
-          };
-        }
-        
-        modulosConOpciones[moduleId].opciones.push({
-          _id: opcion._id,
-          nombre: opcion.nombre,
-          ruta: opcion.ruta,
-          orden: opcion.orden
-        });
-      });
-
-      permisosPorRol.push({
-        rol: {
-          _id: rol._id,
-          nombre: rol.nombre,
-          icono: rol.icono,
-          descripcion: rol.descripcion
-        },
-        modulos: Object.values(modulosConOpciones)
-      });
-    }
-
-    // Remover password de la respuesta
-    const userResponse = user.toObject();
-    delete userResponse.password;
-
-    userResponse.branch = await buildBranchHierarchy(user.branch?._id || user.branch);
+    const { user: userResponse, permisos } = await buildAuthPayload({
+      user,
+      assignments,
+      selectedAssignment
+    });
 
     res.status(200).json({
       success: true,
       data: {
         token,
         user: userResponse,
-        permisos: permisosPorRol
+        permisos
       }
     });
   } catch (error) {
@@ -231,13 +307,13 @@ export const register = async (req, res, next) => {
       fechaNacimiento,
       telefono,
       direccion,
-      branchId,
       // Datos de usuario
       username, 
       email, 
-      password,
-      roles
+      password
     } = req.body;
+
+    const assignmentsPayload = await resolveAssignmentsFromRequest(req.body);
 
     // Validar campos requeridos
     if (!nombres || !apellidos || !tipoDocumento || !numeroDocumento || !fechaNacimiento) {
@@ -246,29 +322,9 @@ export const register = async (req, res, next) => {
       return next(error);
     }
 
-    if (!branchId) {
-      const error = new Error('Debe especificar la sucursal del usuario');
+    if (!username || !email || !password) {
+      const error = new Error('Username, email y password son requeridos');
       error.statusCode = 400;
-      return next(error);
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(branchId)) {
-      const error = new Error('El identificador de la sucursal es inválido');
-      error.statusCode = 400;
-      return next(error);
-    }
-
-    if (!username || !email || !password || !roles || roles.length === 0) {
-      const error = new Error('Username, email, password y al menos un rol son requeridos');
-      error.statusCode = 400;
-      return next(error);
-    }
-
-    const branchExists = await Branch.exists({ _id: branchId });
-
-    if (!branchExists) {
-      const error = new Error('La sucursal indicada no existe');
-      error.statusCode = 404;
       return next(error);
     }
 
@@ -300,9 +356,13 @@ export const register = async (req, res, next) => {
       numeroDocumento,
       fechaNacimiento,
       telefono,
-      direccion,
-      branch: branchId
+      direccion
     });
+
+    await persistPersonAssignments(person._id, assignmentsPayload);
+
+    const aggregatedRoleIds = aggregateRolesFromAssignments(assignmentsPayload);
+    const primaryAssignment = getPrimaryAssignment(assignmentsPayload);
 
     // Crear usuario
     const user = await User.create({
@@ -310,33 +370,32 @@ export const register = async (req, res, next) => {
       email,
       password,
       person: person._id,
-      roles,
-      branch: branchId
+      roles: aggregatedRoleIds,
+      branch: resolveBranchId(primaryAssignment)
     });
 
-    // Poblar datos
-    await user.populate({ path: 'person', populate: { path: 'branch', select: 'name isChurch' } });
-    await user.populate('roles');
-    await user.populate({
-      path: 'branch',
-      select: 'name address isChurch active depth parentBranch manager managerUser',
-      populate: [
-        { path: 'parentBranch', select: 'name isChurch' },
-        { path: 'manager', select: 'nombres apellidos numeroDocumento' },
-        { path: 'managerUser', select: 'username email' }
-      ]
-    });
+    const hydratedUser = await User.findById(user._id)
+      .populate({ path: 'person', populate: { path: 'branches', select: 'name isChurch' } })
+      .populate('roles')
+      .populate({
+        path: 'branch',
+        select: 'name address isChurch active depth parentBranch manager managerUser',
+        populate: [
+          { path: 'parentBranch', select: 'name isChurch' },
+          { path: 'manager', select: 'nombres apellidos numeroDocumento' },
+          { path: 'managerUser', select: 'username email' }
+        ]
+      });
 
-    // Generar token
+    const savedAssignments = await getPersonAssignments(person._id);
+    const selectedAssignment = selectAssignment(savedAssignments, resolveBranchId(primaryAssignment));
+
     const token = generateToken(user._id);
-
-    // Obtener permisos
-    const permisos = await user.obtenerPermisos();
-
-    // Remover password de la respuesta
-    const userResponse = user.toObject();
-    delete userResponse.password;
-    userResponse.branch = await buildBranchHierarchy(user.branch?._id || user.branch);
+    const { user: userResponse, permisos } = await buildAuthPayload({
+      user: hydratedUser,
+      assignments: savedAssignments,
+      selectedAssignment
+    });
 
     res.status(201).json({
       success: true,
@@ -357,13 +416,17 @@ export const register = async (req, res, next) => {
  */
 export const getMe = async (req, res, next) => {
   try {
-    // req.user ya viene del middleware protect
-    const permisos = await req.user.obtenerPermisos();
-
-    const userData = req.user.toObject();
-    userData.branch = await buildBranchHierarchy(req.user.branch?._id || req.user.branch);
+    const personId = req.user.person?._id || req.user.person;
+    const assignments = await getPersonAssignments(personId);
+    const requestedBranchId = extractRequestedBranchId(req) || resolveBranchId({ branch: req.user.branch });
+    const selectedAssignment = selectAssignment(assignments, requestedBranchId);
 
     const token = generateToken(req.user._id);
+    const { user: userData, permisos } = await buildAuthPayload({
+      user: req.user,
+      assignments,
+      selectedAssignment
+    });
 
     res.status(200).json({
       success: true,
@@ -433,61 +496,22 @@ export const updatePassword = async (req, res, next) => {
  */
 export const getPermissions = async (req, res, next) => {
   try {
-    const Option = await import('../models/Option.js').then(m => m.default);
-    
-    // Estructura: ROL → MÓDULO → OPCIONES
-    const permisosPorRol = [];
+    const personId = req.user.person?._id || req.user.person;
+    const assignments = await getPersonAssignments(personId);
+    const requestedBranchId = extractRequestedBranchId(req) || resolveBranchId({ branch: req.user.branch });
+    const selectedAssignment = selectAssignment(assignments, requestedBranchId);
 
-    for (const rol of req.user.roles) {
-      // Obtener todas las opciones de este rol específico
-      const opciones = await Option.find({
-        roles: rol._id,
-        activo: true
-      })
-      .populate('module')
-      .sort({ 'module.orden': 1, orden: 1 });
-
-      // Agrupar opciones por módulo
-      const modulosConOpciones = {};
-      
-      opciones.forEach(opcion => {
-        const moduleId = opcion.module._id.toString();
-        
-        if (!modulosConOpciones[moduleId]) {
-          modulosConOpciones[moduleId] = {
-            module: {
-              _id: opcion.module._id,
-              nombre: opcion.module.nombre,
-              descripcion: opcion.module.descripcion,
-              orden: opcion.module.orden
-            },
-            opciones: []
-          };
-        }
-        
-        modulosConOpciones[moduleId].opciones.push({
-          _id: opcion._id,
-          nombre: opcion.nombre,
-          ruta: opcion.ruta,
-          orden: opcion.orden
-        });
-      });
-
-      // Agregar el rol con sus módulos y opciones
-      permisosPorRol.push({
-        rol: {
-          _id: rol._id,
-          nombre: rol.nombre,
-          icono: rol.icono,
-          descripcion: rol.descripcion
-        },
-        modulos: Object.values(modulosConOpciones)
-      });
+    if (!selectedAssignment) {
+      const error = new Error('No se encontraron asignaciones activas para el usuario');
+      error.statusCode = 403;
+      return next(error);
     }
+
+    const permisos = await buildPermissionsByRoles(selectedAssignment.roles);
 
     res.status(200).json({
       success: true,
-      data: permisosPorRol
+      data: permisos
     });
   } catch (error) {
     next(error);

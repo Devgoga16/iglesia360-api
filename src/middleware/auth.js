@@ -26,7 +26,7 @@ export const protect = async (req, res, next) => {
     // Obtener usuario del token (incluir password:false pero sí roles y person)
     const user = await User.findById(decoded.id)
       .select('-password')
-      .populate({ path: 'person', populate: { path: 'branch', select: 'name isChurch' } })
+      .populate({ path: 'person', populate: { path: 'branches', select: 'name isChurch' } })
       .populate('roles')
       .populate({
         path: 'branch',
