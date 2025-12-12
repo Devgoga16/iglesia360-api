@@ -102,7 +102,7 @@ app.use(errorHandler);
 const PORT = config.port;
 
 app.listen(PORT, () => {
-  console.log(`Servidor corriendo en puerto ${PORT} - Ambiente: ${config.env}`);
+  console.log(`Servidor corriendo en puerto ${PORT} - Ambiente: ${config.env} - Versión: 1.0.0.0`);
 });
 
 export default app;
